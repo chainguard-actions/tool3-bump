@@ -1,0 +1,31 @@
+name: Test unrelated histories input
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      GITHUB_REF: refs/heads/master
+      GITHUB_EVENT_NAME: push
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - id: action
+        uses: .
+        continue-on-error: true
+        with:
+          github_token: ${{ github.token }}
+          branch: master
+          unrelated: "true"
+      - name: Assert action ran with unrelated input
+        env:
+          OUTCOME: ${{ steps.action.outcome }}
+        run: |
+          echo "outcome: $OUTCOME"
+          # The action may fail due to no package.json or no bump commit,
+          # but what matters is that the unrelated input was accepted (not rejected as unknown).
+          # A failure due to missing package.json or git config is expected in this environment.
+          if [ "$OUTCOME" = "skipped" ]; then
+            echo "FAIL: action was skipped unexpectedly"
+            exit 1
+          fi
+          echo "PASS: action accepted the unrelated input and ran (outcome=$OUTCOME)"

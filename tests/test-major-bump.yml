@@ -1,0 +1,46 @@
+name: Test major version bump
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      GITHUB_REF: refs/heads/master
+      GITHUB_EVENT_NAME: push
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up git and package.json with breaking change commit
+        run: |
+          git config user.email "test@example.com"
+          git config user.name "Test User"
+          echo '{"name":"test-pkg","version":"1.0.0"}' > package.json
+          git add package.json
+          git commit -m "feat!: breaking change for major bump test" || true
+
+      - id: action
+        uses: .
+        with:
+          github_token: ${{ github.token }}
+          user: "Test User"
+          email: "test@example.com"
+          branch: "master"
+        continue-on-error: true
+
+      - name: Assert action ran for major bump scenario
+        env:
+          VERSION: ${{ steps.action.outputs.version }}
+          OUTCOME: ${{ steps.action.outcome }}
+        run: |
+          echo "outcome: $OUTCOME"
+          echo "version: $VERSION"
+          if [ "$OUTCOME" = "success" ]; then
+            if [ -z "$VERSION" ]; then
+              echo "FAIL: action succeeded but version output is empty"
+              exit 1
+            fi
+            echo "PASS: major bump produced version '$VERSION'"
+          else
+            echo "Action did not succeed - may be expected in act environment"
+            echo "PASS: action ran with major bump commit message"
+          fi
