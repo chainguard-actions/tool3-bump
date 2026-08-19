@@ -1,0 +1,22 @@
+name: bump
+
+on:
+  push:
+    branches:
+      - release
+
+permissions: {}
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@61b9e3751b92087fd0b06925ba6dd6314e06f089 # master
+    - uses: tool3/bump@6bba234eaed91d5c5ce0f571d44cc4c5f77e6795 # master
+      id: bump
+      with:
+        github_token: ${{ secrets.GP_TOKEN }}
+    - name: checkout output
+      env:
+        BUMP_VERSION: ${{ steps.bump.outputs.version }}
+      run: echo "$BUMP_VERSION"

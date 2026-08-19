@@ -1,0 +1,80 @@
+name: Test basic patch bump
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Set up git config and local origin for git pull/push
+        run: |
+          git config user.email "test@example.com"
+          git config user.name "Test User"
+
+          # Create a package.json in the workspace for npm version to operate on
+          cat > "$GITHUB_WORKSPACE/package.json" <<'EOF'
+          {
+            "name": "test-package",
+            "version": "1.0.0",
+            "description": "Test package for bump action"
+          }
+          EOF
+
+          # Stage and commit the package.json so git is clean
+          git add package.json
+          git commit -m "chore: add package.json for test" || true
+
+          # Create a bare repo under workspace so it's reachable from the action
+          rm -rf "$GITHUB_WORKSPACE/.git-remote"
+          git init --bare "$GITHUB_WORKSPACE/.git-remote"
+          git push "$GITHUB_WORKSPACE/.git-remote" HEAD:refs/heads/master
+          git push "$GITHUB_WORKSPACE/.git-remote" --tags
+
+          # Point origin at the bare repo (reachable from within the action)
+          git remote set-url origin "$GITHUB_WORKSPACE/.git-remote" 2>/dev/null || \
+            git remote add origin "$GITHUB_WORKSPACE/.git-remote"
+
+      - id: action
+        uses: .
+        with:
+          user: "Test User"
+          email: "test@example.com"
+          branch: "master"
+          github_token: ${{ github.token }}
+
+      - name: Assert version output is set
+        env:
+          VERSION: ${{ steps.action.outputs.version }}
+        run: |
+          echo "version: $VERSION"
+          if [ -z "$VERSION" ]; then
+            echo "FAIL: expected version output to be non-empty"
+            exit 1
+          fi
+          echo "PASS: version output is '$VERSION'"
+
+      - name: Assert version is a valid semver
+        env:
+          VERSION: ${{ steps.action.outputs.version }}
+        run: |
+          echo "version: $VERSION"
+          if ! echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "FAIL: version '$VERSION' does not match semver pattern"
+            exit 1
+          fi
+          echo "PASS: version '$VERSION' is valid semver"
+
+      - name: Assert patch version was bumped (patch = last segment incremented)
+        env:
+          VERSION: ${{ steps.action.outputs.version }}
+        run: |
+          echo "version: $VERSION"
+          PATCH=$(echo "$VERSION" | cut -d. -f3)
+          if [ "$PATCH" -lt 1 ]; then
+            echo "FAIL: expected patch version >= 1, got $PATCH"
+            exit 1
+          fi
+          echo "PASS: patch version is $PATCH"

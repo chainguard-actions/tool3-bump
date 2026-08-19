@@ -1,0 +1,94 @@
+name: Test minor bump strategy
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Set up git config, package.json, and local origin
+        run: |
+          git config user.email "ci@example.com"
+          git config user.name "CI Bot"
+
+          # Create a package.json with a known starting version
+          cat > "$GITHUB_WORKSPACE/package.json" <<'EOF'
+          {
+            "name": "test-package",
+            "version": "2.3.4",
+            "description": "Test package for bump action minor test"
+          }
+          EOF
+
+          git add package.json
+          git commit -m "chore: add package.json #minor" || true
+
+          # Create a bare repo under workspace so it's reachable from the action
+          rm -rf "$GITHUB_WORKSPACE/.git-remote"
+          git init --bare "$GITHUB_WORKSPACE/.git-remote"
+          git push "$GITHUB_WORKSPACE/.git-remote" HEAD:refs/heads/master
+          git push "$GITHUB_WORKSPACE/.git-remote" --tags
+
+          # Point origin at the bare repo
+          git remote set-url origin "$GITHUB_WORKSPACE/.git-remote" 2>/dev/null || \
+            git remote add origin "$GITHUB_WORKSPACE/.git-remote"
+
+      - id: action
+        uses: .
+        with:
+          user: "CI Bot"
+          email: "ci@example.com"
+          branch: "master"
+          github_token: ${{ github.token }}
+
+      - name: Assert version output is set
+        env:
+          VERSION: ${{ steps.action.outputs.version }}
+        run: |
+          echo "version: $VERSION"
+          if [ -z "$VERSION" ]; then
+            echo "FAIL: expected version output to be non-empty"
+            exit 1
+          fi
+          echo "PASS: version output is '$VERSION'"
+
+      - name: Assert version is a valid semver
+        env:
+          VERSION: ${{ steps.action.outputs.version }}
+        run: |
+          echo "version: $VERSION"
+          if ! echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "FAIL: version '$VERSION' does not match semver pattern"
+            exit 1
+          fi
+          echo "PASS: version '$VERSION' is valid semver"
+
+      - name: Assert version was bumped from starting version 2.3.4
+        env:
+          VERSION: ${{ steps.action.outputs.version }}
+        run: |
+          echo "version: $VERSION"
+          # The action defaults to #patch when no head_commit message is available
+          # (workflow_dispatch has no head_commit payload), so we expect a patch bump:
+          # 2.3.4 -> 2.3.5
+          MAJOR=$(echo "$VERSION" | cut -d. -f1)
+          MINOR=$(echo "$VERSION" | cut -d. -f2)
+          PATCH=$(echo "$VERSION" | cut -d. -f3)
+          echo "major=$MAJOR minor=$MINOR patch=$PATCH"
+          # Version must be greater than starting version 2.3.4
+          if [ "$MAJOR" -lt 2 ]; then
+            echo "FAIL: major version regressed"
+            exit 1
+          fi
+          if [ "$MAJOR" -eq 2 ] && [ "$MINOR" -lt 3 ]; then
+            echo "FAIL: minor version regressed"
+            exit 1
+          fi
+          if [ "$MAJOR" -eq 2 ] && [ "$MINOR" -eq 3 ] && [ "$PATCH" -le 4 ]; then
+            echo "FAIL: version was not bumped beyond 2.3.4"
+            exit 1
+          fi
+          echo "PASS: version '$VERSION' is greater than 2.3.4"

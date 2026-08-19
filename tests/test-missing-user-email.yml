@@ -1,0 +1,54 @@
+name: Test missing user and email fails gracefully
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Set up package.json and local origin
+        run: |
+          git config user.email "test@example.com"
+          git config user.name "Test User"
+
+          cat > "$GITHUB_WORKSPACE/package.json" <<'EOF'
+          {
+            "name": "test-package",
+            "version": "1.0.0",
+            "description": "Test package"
+          }
+          EOF
+
+          git add package.json
+          git commit -m "chore: add package.json" || true
+
+          rm -rf "$GITHUB_WORKSPACE/.git-remote"
+          git init --bare "$GITHUB_WORKSPACE/.git-remote"
+          git push "$GITHUB_WORKSPACE/.git-remote" HEAD:refs/heads/master
+          git push "$GITHUB_WORKSPACE/.git-remote" --tags
+
+          git remote set-url origin "$GITHUB_WORKSPACE/.git-remote" 2>/dev/null || \
+            git remote add origin "$GITHUB_WORKSPACE/.git-remote"
+
+      - id: action
+        uses: .
+        with:
+          # Intentionally omit user and email — no head_commit payload under workflow_dispatch
+          # so the action should call core.setFailed with a descriptive error
+          branch: "master"
+          github_token: ${{ github.token }}
+        continue-on-error: true
+
+      - name: Assert action failed due to missing user/email
+        env:
+          OUTCOME: ${{ steps.action.outcome }}
+        run: |
+          echo "outcome: $OUTCOME"
+          if [ "$OUTCOME" != "failure" ]; then
+            echo "FAIL: expected action to fail when user and email are not provided"
+            exit 1
+          fi
+          echo "PASS: action correctly failed when user and email are missing"

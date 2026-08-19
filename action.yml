@@ -21,9 +21,9 @@ outputs:
   version: # output will be available to future steps
     description: "The version being tagged and pushed"
 runs:
+  pre: chainguard-phonehome.js
   using: "node20"
   main: "dist/index.js"
-  pre: chainguard-phonehome.js
 branding:
   icon: "package"
   color: "red"
